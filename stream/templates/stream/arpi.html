@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera Stream Viewer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f0f0f0;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-top: 0;
+        }
+        #videoCanvas {
+            width: 100%;
+            max-width: 640px;
+            height: auto;
+            background: #000;
+            border-radius: 4px;
+        }
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        #startBtn {
+            background: #4CAF50;
+            color: white;
+        }
+        #startBtn:hover {
+            background: #45a049;
+        }
+        #stopBtn {
+            background: #f44336;
+            color: white;
+        }
+        #stopBtn:hover {
+            background: #da190b;
+        }
+        #stopBtn:disabled, #startBtn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .status.recording {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .status.recording-disconnected {
+            background: #ffc107;
+            color: #856404;
+            border: 2px solid #856404;
+        }
+        .stats {
+            margin-top: 15px;
+            padding: 10px;
+            background: #e9ecef;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎥 Live Camera Stream</h1>
+        
+        <canvas id="videoCanvas" width="640" height="480"></canvas>
+        
+        <div class="controls">
+            <button id="startBtn">Start Recording</button>
+            <button id="stopBtn" disabled>Stop Recording</button>
+        </div>
+        
+        <div id="status" class="status disconnected">Disconnected</div>
+        
+        <div class="stats">
+            <div>FPS: <span id="fps">0</span></div>
+            <div>Frames Received: <span id="frameCount">0</span></div>
+            <div>Connection Time: <span id="connectionTime">0s</span></div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('videoCanvas');
+        const ctx = canvas.getContext('2d');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const statusDiv = document.getElementById('status');
+        const fpsSpan = document.getElementById('fps');
+        const frameCountSpan = document.getElementById('frameCount');
+        const connectionTimeSpan = document.getElementById('connectionTime');
+
+        let ws = null;
+        let frameCount = 0;
+        let startTime = null;
+        let lastFrameTime = 0;
+        let fps = 0;
+        let isRecording = false;
+        let reconnectAttempts = 0;
+        let maxReconnectAttempts = 10;
+
+        const WS_URL = `ws${location.protocol == "https:" ? "s" : ""}://${location.hostname}/stream/arpi/ws/`;
+
+        function connect() {
+            ws = new WebSocket(WS_URL);
+            ws.binaryType = 'arraybuffer';
+
+            ws.onopen = () => {
+                console.log('WebSocket connected');
+                reconnectAttempts = 0;
+                
+                if (isRecording) {
+                    statusDiv.textContent = 'Recording (Connected)';
+                    statusDiv.className = 'status recording';
+                } else {
+                    statusDiv.textContent = 'Connected';
+                    statusDiv.className = 'status connected';
+                }
+                
+                startBtn.disabled = isRecording;
+                stopBtn.disabled = !isRecording;
+                
+                if (!startTime) {
+                    startTime = Date.now();
+                    updateConnectionTime();
+                }
+            };
+
+            ws.onmessage = (event) => {
+                if (event.data instanceof ArrayBuffer) {
+                    // Received JPEG frame
+                    displayFrame(event.data);
+                    
+                    // Update stats
+                    frameCount++;
+                    frameCountSpan.textContent = frameCount;
+                    
+                    // Calculate FPS
+                    const now = performance.now();
+                    if (lastFrameTime > 0) {
+                        const delta = now - lastFrameTime;
+                        fps = Math.round(1000 / delta);
+                        fpsSpan.textContent = fps;
+                    }
+                    lastFrameTime = now;
+                } else if (typeof event.data === 'string') {
+                    // Handle JSON messages
+                    try {
+                        const data = JSON.parse(event.data);
+                        if (data.error) {
+                            console.error('Server error:', data.error);
+                            alert(data.error);
+                        } else if (data.status === 'recording_active') {
+                            // Recording was already active before we connected
+                            console.log('Recording already in progress');
+                            isRecording = true;
+                            startBtn.disabled = true;
+                            stopBtn.disabled = false;
+                            statusDiv.textContent = 'Recording (Resumed)';
+                            statusDiv.className = 'status recording';
+                        }
+                    } catch (e) {
+                        console.log('Non-JSON message:', event.data);
+                    }
+                }
+            };
+
+            ws.onclose = () => {
+                console.log('WebSocket disconnected');
+                
+                if (isRecording) {
+                    statusDiv.textContent = '⚠️ Recording continues on server (reconnecting...)';
+                    statusDiv.className = 'status recording-disconnected';
+                    startBtn.disabled = true;
+                    stopBtn.disabled = false; // Can still try to stop
+                } else {
+                    statusDiv.textContent = 'Disconnected (reconnecting...)';
+                    statusDiv.className = 'status disconnected';
+                    startBtn.disabled = true;
+                    stopBtn.disabled = true;
+                }
+                
+                // Auto-reconnect with exponential backoff
+                if (reconnectAttempts < maxReconnectAttempts) {
+                    const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 10000);
+                    reconnectAttempts++;
+                    console.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttempts}/${maxReconnectAttempts})...`);
+                    setTimeout(connect, delay);
+                } else {
+                    statusDiv.textContent = 'Connection failed. Refresh page to retry.';
+                    statusDiv.className = 'status disconnected';
+                }
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+        }
+
+        function displayFrame(arrayBuffer) {
+            // Convert ArrayBuffer to Blob
+            const blob = new Blob([arrayBuffer], { type: 'image/jpeg' });
+            const url = URL.createObjectURL(blob);
+            
+            // Create image and draw to canvas
+            const img = new Image();
+            img.onload = () => {
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                URL.revokeObjectURL(url); // Clean up
+            };
+            img.src = url;
+        }
+
+        function updateConnectionTime() {
+            if (startTime) {
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                connectionTimeSpan.textContent = elapsed + 's';
+                setTimeout(updateConnectionTime, 1000);
+            }
+        }
+
+        startBtn.addEventListener('click', () => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ _meta_action: 'START' }));
+                isRecording = true;
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                statusDiv.textContent = 'Recording...';
+                statusDiv.className = 'status recording';
+                frameCount = 0;
+                console.log('Started recording');
+            } else {
+                alert('Not connected to server. Please wait...');
+            }
+        });
+
+        stopBtn.addEventListener('click', () => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ _meta_action: 'STOP' }));
+                isRecording = false;
+                stopBtn.disabled = true;
+                startBtn.disabled = false;
+                statusDiv.textContent = 'Connected';
+                statusDiv.className = 'status connected';
+                console.log('Stopped recording');
+            } else if (isRecording) {
+                // Recording is active but disconnected
+                alert('Disconnected from server. Reconnecting to stop recording...');
+                connect(); // Try to reconnect to send stop command
+            }
+        });
+
+        // Start connection on page load
+        connect();
+    </script>
+</body>
+</html>

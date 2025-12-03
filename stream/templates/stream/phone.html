@@ -1,0 +1,76 @@
+{% load static %}
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StreamTo</title>
+</head>
+
+<body>
+    <button id="start_stream">Start stream</button>
+    <button id="stop_stream">Stop stream</button>
+
+    <video src="" id="local_stream"></video>
+
+    <script defer>
+        let ws
+        let mediaRecorder
+        let mediaStream
+
+        document.querySelector('button#start_stream').onclick = async () => {
+            let _try_task = () => {
+                ws = new WebSocket(`ws${location.protocol == "https:" ? "s" : ""}://${location.hostname}/stream/phone/ws/`)
+            }
+            try {
+                _try_task()
+            } catch (error) {
+                console.error(error)
+                _try_task()
+            }
+
+            // Client side - capture and send
+            mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+            mediaRecorder = new MediaRecorder(mediaStream, {
+                mimeType: 'video/webm;codecs=vp8'
+            });
+
+            if ('wakeLock' in navigator) {
+                wakeLock = await navigator.wakeLock.request('screen');
+                console.log('Screen will stay on during recording');
+            }
+
+
+            document.querySelector('video#local_stream').srcObject = mediaStream;
+            document.querySelector('video#local_stream').play()
+
+            try {
+                ws.send(JSON.stringify({ _meta_action: "START" }))
+
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        ws.send(event.data);
+                    }
+                };
+                mediaRecorder.start(100); // chunks every 100ms
+            } catch (error) {
+                console.error(error);
+            }
+        }
+
+        document.querySelector('button#stop_stream').onclick = () => {
+            mediaStream.getTracks().forEach(track => track.stop());
+            mediaRecorder.stop()
+            setTimeout(() => {
+                ws.send(JSON.stringify({ _meta_action: "STOP" }))
+
+            }, 100)
+            document.querySelector('video#local_stream').srcObject = null;
+            document.querySelector('video#local_stream').pause()
+        }
+    </script>
+</body>
+
+</html>
