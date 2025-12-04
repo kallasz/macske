@@ -7,10 +7,17 @@ from picamera2.outputs import FileOutput
 from django.core.files.base import ContentFile
 from channels.generic.websocket import AsyncWebsocketConsumer
 from asgiref.sync import sync_to_async as database_sync_to_async
-from stream.models import Chunk, VideoStream
+from stream.models import Chunk, VideoStream, CatDetection
 import io
 import threading
 from stream.ffmpeg import frames_to_webm_buffer
+
+
+import torch
+import torchvision
+from torchvision import transforms
+from PIL import Image
+import numpy as np
 
 
 class StreamingOutput(io.BufferedIOBase):
@@ -49,6 +56,22 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
                     "message": "Recording already in progress"
                 }))
         
+        self.device = 'cpu'
+        self.model = torchvision.models.detection.fasterrcnn_mobilenet_v3_large_fpn(
+            pretrained=True
+        )
+
+        self.model.to(self.device)
+        self.model.eval()
+        
+        self.CAT_CLASS_ID = 17
+        self.confidence_threshold = 0.5
+
+        self.transform = transforms.Compose([
+            transforms.ToTensor(),
+        ])
+
+        
     async def disconnect(self, code):
         # Leave the camera stream group
         await self.channel_layer.group_discard(
@@ -83,6 +106,8 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
                         'lores_output': StreamingOutput(),
                         'fullres_encoder': MJPEGEncoder(),
                         'lores_encoder': MJPEGEncoder(),
+                        'cat_analyzation_queue': asyncio.Queue(),
+                        'cat_detections_in_current_chunk': []
                     }
                     
                     state = _recording_state
@@ -112,6 +137,7 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
                     
                     # Start worker tasks
                     state['worker_task'] = asyncio.create_task(self._worker_save_chunk())
+                    state['catdet_task'] = asyncio.create_task(self._cat_analyzation())
                     state['camera_task'] = asyncio.create_task(self._use_camera())
                     
                     print(f'Started recording: {state["vs"].started.strftime("%Y_%m_%d_%H_%M_%S")}')
@@ -138,10 +164,12 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
                     
                     # Save remaining frames
                     if len(state['frames']) > 0:
-                        await state['queue'].put((state['frames'].copy(), state['current_chunk_number']))
+                        await state['queue'].put((state['frames'].copy(), state['current_chunk_number'], state['cat_detections_in_current_chunk'].copy()))
                     
-                    await state['queue'].put((None, None))
+                    await state['queue'].put((None, None, None))
+                    await state['cat_analyzation_queue'].put(None)
                     await state['worker_task']
+                    await state['catdet_task']
                     
                     # Update database
                     state['vs'].stopped = datetime.now()
@@ -155,14 +183,14 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
         state = _recording_state
         if not state:
             return
-            
+        frame_analyzation_counter = 0
         while True:
             if state['signal_to_stop'] == 1:
                 break
                 
             # Check if we need to save a chunk
             if len(state['frames']) >= state['chunk_frame_limit']:
-                await state['queue'].put((state['frames'].copy(), state['current_chunk_number']))
+                await state['queue'].put((state['frames'].copy(), state['current_chunk_number'], state['cat_detections_in_current_chunk'].copy()))
                 state['current_chunk_number'] += 1
                 state['frames'] = []
             
@@ -179,6 +207,7 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
                     state['lores_output'].condition.wait()
                     lores_frame = state['lores_output'].frame
                     if lores_frame:
+                        frame_analyzation_counter += 1
                         # Send to all clients in the group
                         await self.channel_layer.group_send(
                             self.stream_group_name,
@@ -186,12 +215,41 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
                                 'type': 'stream_frame',
                                 'frame': lores_frame
                             }
-                        )
+                        )            
             except Exception as e:
                 print(f"Error broadcasting frame: {e}")
             
+            if frame_analyzation_counter == 150:
+                frame_analyzation_counter = 0
+                await _recording_state['cat_analyzation_queue'].put(lores_frame)
+
             await asyncio.sleep(0.033)  # ~30fps
     
+    async def _cat_analyzation(self):
+        state = _recording_state
+        if not state:
+            return
+        
+        while True:
+            try:
+                frame = await state['cat_analyzation_queue'].get()
+                if frame is None:
+                    break
+                print("analyzing for cats...")
+                image = Image.open(io.BytesIO(frame)).convert('RGB')
+                img_tensor = self.transform(image).unsqueeze(0).to(self.device)
+                with torch.no_grad():
+                    predictions = self.model(img_tensor)[0]
+                for i, label in enumerate(predictions['labels']):
+                    if label == self.CAT_CLASS_ID:
+                        score = predictions['scores'][i].item()
+                        if score >= self.confidence_threshold:
+                            cd = await database_sync_to_async(CatDetection.objects.create)(frame_num=len(state['frames']), frame_file=ContentFile(frame, f'{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}.jpg'), video_stream=state['vs'])
+                            state['cat_detections_in_current_chunk'].append(cd)
+            except Exception as e:
+                print(e)
+
+
     async def stream_frame(self, event):
         """Handler for receiving frames from group_send"""
         try:
@@ -207,7 +265,7 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
             return
             
         while True:
-            frames, current_chunk_number = await state['queue'].get()
+            frames, current_chunk_number, cat_detections_in_current_chunk = await state['queue'].get()
 
             if frames is None:
                 break
@@ -229,9 +287,14 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
                 )
                 await database_sync_to_async(chunk.video_file.save)(
                     f'CHUNK_{current_chunk_number:04d}.webm', 
-                    ContentFile(buffer.getvalue()), 
+                    ContentFile(buffer.getvalue()),
                     save=True
                 )
+
+                for cd in cat_detections_in_current_chunk:
+                    cd.chunk = chunk
+                    await database_sync_to_async(cd.save)()
+                    _recording_state['cat_detections_in_current_chunk'] = []
                 
                 print(f"Saved chunk {current_chunk_number}")
                 

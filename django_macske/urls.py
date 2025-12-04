@@ -1,13 +1,11 @@
 from django.contrib import admin
 from django.urls import include, path
-from detector.urls import urlpatterns as detector_urlpatterns
 from stream.urls import urlpatterns as stream_urlpatterns
 from django.conf import settings
 from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('detector/', include(detector_urlpatterns)),
     path('stream/', include(stream_urlpatterns)),
 ]
 

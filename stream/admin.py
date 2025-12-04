@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from stream.models import VideoStream, Chunk
+from stream.models import CatDetection, VideoStream, Chunk
 # Register your models here.
 admin.site.register(Chunk)
 
@@ -14,3 +14,6 @@ class VideoStreamAdmin(admin.ModelAdmin):
     list_display = ('id', 'started',)
     readonly_fields = ('started',)
     inlines = [ChunkInline]
+
+
+admin.site.register(CatDetection)
