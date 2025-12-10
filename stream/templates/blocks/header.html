@@ -1,0 +1,29 @@
+{% load static %}
+{% block header %}
+<link rel="stylesheet" href="{% static 'header.css' %}">
+<header>
+    <div>
+        <h3><a href="/">macske</a> // <a href="?randomcat">==(^_^)==</a></h3>
+    </div>
+    <div>
+        <nav>
+            <a href="/dash/">Dash</a>
+            <span class="sep"></span>
+            <a href="/stream/">Stream controls</a>
+            <span class="sep"></span>
+            {% if request.user.is_superuser %}
+            <a href="/admin/">Admin</a>
+            <span class="sep"></span>
+            {% endif %}
+            {% if request.user.is_authenticated %}
+            <form id="logout-form" method="post" action="/admin/logout/?redirect=/">
+                {% csrf_token %}
+                <button type="submit">Log out</button>
+            </form>
+            {% else %}
+            <a href="/admin/login/?next={{ request.get_full_path|urlencode }}">Login</a>
+            {% endif %}
+        </nav>
+    </div>
+</header>
+{% endblock %}

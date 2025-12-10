@@ -1,0 +1,11 @@
+{% extends "dash/index.html" %}
+{% load static %}
+{% block dash_page %}
+<link rel="stylesheet" href="{% static 'catdetections.css' %}">
+<h1>Cat Detections</h1>
+<div>
+  {% for k in kepek %}
+  <img src="{{ k.url }}" alt="" class="cat_image">
+  {% endfor %}
+</div>
+{% endblock %}

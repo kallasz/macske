@@ -1,0 +1,21 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dash - macske</title>
+    <link rel="stylesheet" href="{% static 'index.css' %}">
+    <link rel="stylesheet" href="{% static 'dash.css' %}">
+</head>
+<body>
+    {% include 'blocks/header.html' %}
+    <nav class="dash-nav">
+        <a href="/dash/catdetections/">Cat detections</a>
+    </nav>
+    <main>
+        {% block dash_page %}{% endblock %}
+    </main>
+    {% include 'blocks/footer.html' %}
+</body>
+</html>

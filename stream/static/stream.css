@@ -1,0 +1,18 @@
+main {
+    align-items: start;
+    justify-content: left;
+    padding: 20px;
+}
+#video_stream {
+    border: 2px solid white;
+    border-radius: 10px;
+}
+#button_bar[x-status="disconnected"] #pulse {
+    background-color: red;
+}
+#button_bar[x-status="connected"] #pulse{
+    background-color: limegreen;
+}
+#button_bar[x-status="recording"] #pulse {
+    background-color: orange;
+}

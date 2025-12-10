@@ -115,7 +115,7 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
                     # Configure camera
                     picam2_config = state['picam2'].create_video_configuration(
                         main={"size": (1920, 1080), "format": "RGB888"},
-                        lores={"size": (640, 480), "format": "YUV420"},
+                        lores={"size": (960, 540), "format": "YUV420"},
                         controls={"FrameRate": 30}
                     )
                     state['picam2'].configure(picam2_config)
