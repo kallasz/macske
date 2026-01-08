@@ -10,7 +10,7 @@ from asgiref.sync import sync_to_async as database_sync_to_async
 from stream.models import Chunk, VideoStream, CatDetection
 import io
 import threading
-from stream.ffmpeg import frames_to_webm_buffer
+from stream.ffmpeg import frames_to_webm_buffer, concatenate_webm_chunks
 
 
 import torch
@@ -139,6 +139,7 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
                     state['worker_task'] = asyncio.create_task(self._worker_save_chunk())
                     state['catdet_task'] = asyncio.create_task(self._cat_analyzation())
                     state['camera_task'] = asyncio.create_task(self._use_camera())
+                    state['video_combination_task'] = asyncio.create_task(self._video_combination_task())
                     
                     print(f'Started recording: {state["vs"].started.strftime("%Y_%m_%d_%H_%M_%S")}')
                 
@@ -170,6 +171,7 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
                     await state['cat_analyzation_queue'].put(None)
                     await state['worker_task']
                     await state['catdet_task']
+                    await state['video_combination_task']
                     
                     # Update database
                     state['vs'].stopped = datetime.now()
@@ -221,7 +223,7 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
             
             if frame_analyzation_counter == 150:
                 frame_analyzation_counter = 0
-                await _recording_state['cat_analyzation_queue'].put(lores_frame)
+                await _recording_state['cat_analyzation_queue'].put((lores_frame, fullres_frame))
 
             await asyncio.sleep(0.033)  # ~30fps
     
@@ -232,11 +234,11 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
         
         while True:
             try:
-                frame = await state['cat_analyzation_queue'].get()
+                lores_frame, fullres_frame = await state['cat_analyzation_queue'].get()
                 if frame is None:
                     break
                 print("analyzing for cats...")
-                image = Image.open(io.BytesIO(frame)).convert('RGB')
+                image = Image.open(io.BytesIO(lores_frame)).convert('RGB')
                 img_tensor = self.transform(image).unsqueeze(0).to(self.device)
                 with torch.no_grad():
                     predictions = self.model(img_tensor)[0]
@@ -244,7 +246,7 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
                     if label == self.CAT_CLASS_ID:
                         score = predictions['scores'][i].item()
                         if score >= self.confidence_threshold:
-                            cd = await database_sync_to_async(CatDetection.objects.create)(frame_num=len(state['frames']), frame_file=ContentFile(frame, f'{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}.jpg'), video_stream=state['vs'])
+                            cd = await database_sync_to_async(CatDetection.objects.create)(frame_num=len(state['frames']), frame_file=ContentFile(fullres_frame, f'{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}.jpg'), video_stream=state['vs'])
                             state['cat_detections_in_current_chunk'].append(cd)
             except Exception as e:
                 print(e)
@@ -300,3 +302,30 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
                 
             except Exception as e:
                 print(f"Error saving chunk {current_chunk_number}: {e}")
+
+    async def _video_combination_task(self):
+        while True:
+            await asyncio.sleep(300)  # Every 5 minutes
+            async with _recording_lock:
+                global _recording_state
+                if _recording_state is None:
+                    break
+                
+                state = _recording_state
+                chunks = await database_sync_to_async(list)(Chunk.objects.filter(video_stream=state['vs']).order_by('chunk_number'))
+                
+                chunk_paths = [chunk.video_file.path for chunk in chunks]
+                try:
+                    buffer = await asyncio.to_thread(
+                        concatenate_webm_chunks,
+                        chunk_paths
+                    )
+                    
+                    combined_video_path = f'combined_{state["vs"].id}.webm'
+                    with open(combined_video_path, 'wb') as f:
+                        f.write(buffer.getvalue())
+                    
+                    print(f"Combined video saved to {combined_video_path}")
+                    
+                except Exception as e:
+                    print(f"Error combining videos: {e}")

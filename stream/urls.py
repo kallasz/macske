@@ -11,7 +11,8 @@ from . import consumers_arpi
 dash_urlpatterns = [
     path('', views.dash, name='dash_index'),
     path('arpi/', views.arpi_stream, name='arpi_stream'),
-    path('catdetections/', views.dash_cat_detections, name='dash_cat_detections')
+    path('catdetections/', views.dash_cat_detections, name='dash_cat_detections'),
+    path('streams/', views.dash_streams, name='dash_streams'),
 ]
 
 websocket_urlpatterns = [

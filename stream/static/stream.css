@@ -16,3 +16,21 @@ main {
 #button_bar[x-status="recording"] #pulse {
     background-color: orange;
 }
+button {
+    background-color: rgb(32, 32, 32);
+    border-radius: unset;
+    border-bottom-left-radius: 10px !important;
+    border-top-left-radius: 10px !important;
+    border-inline-end: 2px solid white;
+}
+#status {
+    display: flex;
+}
+#pulse {
+    border-top-right-radius: 10px;
+    border-bottom-right-radius: 10px;
+}
+#button_bar {
+    display: flex;
+    flex-direction: row;
+}

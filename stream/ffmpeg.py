@@ -90,3 +90,30 @@ def frames_to_webm_buffer(frames, framerate=30, width=None, height=None):
     buffer.seek(0)
     
     return buffer
+
+def concatenate_webm_chunks(webm_chunk_paths):
+    """
+    Concatenate multiple WebM files into a single buffer.
+    
+    Args:
+        webm_chunk_paths: List of file paths (strings) to WebM files
+    
+    Returns:
+        BytesIO buffer containing concatenated WebM
+    """
+    print(f"\nConcatenating {len(webm_chunk_paths)} WebM chunks...")
+    
+    combined_data = b''
+    
+    for i, file_path in enumerate(webm_chunk_paths):
+        # Open the file and read its contents
+        with open(file_path, 'rb') as f:
+            chunk_data = f.read()
+            combined_data += chunk_data
+            print(f"  Added chunk {i + 1}: {len(chunk_data)} bytes")
+    
+    print(f"Total concatenated size: {len(combined_data)} bytes")
+    
+    result_buffer = io.BytesIO(combined_data)
+    result_buffer.seek(0)
+    return result_buffer

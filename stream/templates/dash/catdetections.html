@@ -3,7 +3,7 @@
 {% block dash_page %}
 <link rel="stylesheet" href="{% static 'catdetections.css' %}">
 <h1>Cat Detections</h1>
-<div>
+<div id="cat_detections_container">
   {% for k in kepek %}
   <img src="{{ k.url }}" alt="" class="cat_image">
   {% endfor %}
