@@ -1,0 +1,19 @@
+{% extends "dash/index.html" %}
+{% load static %}
+{% block dash_page %}
+<link rel="stylesheet" href="{% static 'streams.css' %}">
+
+<h1>#{{ stream.id }}</h1>
+<p>started: {{ stream.started|date:"Y-m-d H:i:s" }}</p>
+<p>stopped: {{ stream.stopped|date:"Y-m-d H:i:s" }}</p>
+
+<h2>Chunks</h2>
+{% for c in chunks %}
+  <div class="stream">
+    <span class="id">#{{c.id }}-{{ c.chunk_number }}</span>
+    <span>{{ c.created_at|date:"Y-m-d H:i:s" }}</span>
+    <a href="chunks/{{ c.chunk_number }}/">View</a>
+  </div>
+{% endfor %}
+
+{% endblock %}

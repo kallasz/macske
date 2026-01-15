@@ -1,0 +1,11 @@
+{% extends "dash/index.html" %}
+{% load static %}
+{% block dash_page %}
+<link rel="stylesheet" href="{% static 'catdetections.css' %}">
+<h1>#{{ cd.id }}</h1>
+<img src="{{ cd.frame_file.url }}" alt="">
+<a href="/dash/streams/{{ cd.video_stream.id }}/">View stream</a>
+{% if cd.chunk %}
+  <a href="/dash/streams/{{ cd.video_stream.id }}/chunks/{{ cd.chunk.chunk_number }}">View chunk</a>
+{% endif %}
+{% endblock %}

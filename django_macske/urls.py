@@ -10,6 +10,7 @@ urlpatterns = [
     path('', views.index, name="index"),
     path('dash/', include(dash_urlpatterns)),
     path('stream/', views.stream, name="stream"),
+    path("randomcat/", views.randomcat, name="")
     # path('stream/', include(stream_urlpatterns)),
 ]
 

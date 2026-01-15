@@ -1,0 +1,11 @@
+{% extends "dash/index.html" %}
+{% load static %}
+{% block dash_page %}
+<link rel="stylesheet" href="{% static 'streams.css' %}">
+
+<h1>#{{ chunk.id }}-{{ chunk.chunk_number }}</h1>
+<p>created at: {{ chunk.created_at|date:"Y-m-d H:i:s" }}</p>
+<video src="{{chunk.video_file.url}}" type="video/webm" controls></video>
+
+
+{% endblock %}

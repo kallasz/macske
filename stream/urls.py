@@ -12,7 +12,10 @@ dash_urlpatterns = [
     path('', views.dash, name='dash_index'),
     path('arpi/', views.arpi_stream, name='arpi_stream'),
     path('catdetections/', views.dash_cat_detections, name='dash_cat_detections'),
+    path('catdetections/<int:id>/', views.dash_cat_detection, name='dash_cat_detection'),
     path('streams/', views.dash_streams, name='dash_streams'),
+    path('streams/<int:id>/', views.dash_stream, name='dash_stream'),
+    path('streams/<int:sid>/chunks/<int:cid>/', views.dash_stream_chunk, name='dash_stream_chunk'),
 ]
 
 websocket_urlpatterns = [

@@ -5,7 +5,10 @@
 <h1>Cat Detections</h1>
 <div id="cat_detections_container">
   {% for k in kepek %}
-  <img src="{{ k.url }}" alt="" class="cat_image">
+  <div class="cat_detection">
+    <img src="{{ k.frame_file.url }}" alt="" class="cat_image">
+    <a href="{{ k.id }}/">View</a>
+  </div>
   {% endfor %}
 </div>
 {% endblock %}

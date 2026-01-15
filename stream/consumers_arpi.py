@@ -235,7 +235,7 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
         while True:
             try:
                 lores_frame, fullres_frame = await state['cat_analyzation_queue'].get()
-                if frame is None:
+                if lores_frame is None or fullres_frame is None:
                     break
                 print("analyzing for cats...")
                 image = Image.open(io.BytesIO(lores_frame)).convert('RGB')

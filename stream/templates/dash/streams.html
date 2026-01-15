@@ -2,4 +2,20 @@
 {% load static %}
 {% block dash_page %}
 <link rel="stylesheet" href="{% static 'streams.css' %}">
+
+<h1>Streams</h1>
+
+<div id="streams_container">
+  {% for s in streamek %}
+    <div class="stream">
+        <span class="id">#{{ s.stream.id }}</span>
+        <span class="started">{{ s.stream.started|date:"Y-m-d H:i:s" }}</span>
+        -
+        <span class="stopped">{{ s.stream.stopped|date:"Y-m-d H:i:s" }}</span>
+      <a href="{{ s.stream.id }}">Details</a>
+    </div>
+    
+  {% endfor %}
+</div>
+
 {% endblock %}

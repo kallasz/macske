@@ -1,0 +1,39 @@
+.stream {
+  display: flex;
+  padding: 10px 20px;
+  gap: 10px;
+  background-color: grey;
+  /* margin: 10px; */
+  max-width: 500px;
+  width: 100%;
+  justify-content: space-between;
+}
+.stream a {
+  min-width: unset;
+}
+.id {
+  font-weight: bold;
+  padding-right: 10px;
+  display: flex;
+  align-items: center;
+}
+.stream span {
+  align-items: center;
+  display: flex;
+}
+
+#streams_container {
+  display: flex;
+  gap: 20px;
+  height: 100%;
+  overflow-y: auto;
+  justify-content: center;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
+video {
+  max-width: calc(100vw - 10px);
+  max-height: calc(100vh - 50px - 40px - 40px);
+  margin-top: 25px;
+}
