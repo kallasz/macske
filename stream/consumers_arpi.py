@@ -20,6 +20,12 @@ from PIL import Image
 import numpy as np
 
 
+import RPi.GPIO as GPIO
+import time
+import statistics
+
+
+
 class StreamingOutput(io.BufferedIOBase):
     def __init__(self):
         self.frame = None
@@ -80,6 +86,7 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
         )
         print(f"Client disconnected, but recording continues...")
 
+
     async def receive(self, text_data=None, bytes_data=None):
         if text_data:
             data = json.loads(text_data)
@@ -107,7 +114,8 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
                         'fullres_encoder': MJPEGEncoder(),
                         'lores_encoder': MJPEGEncoder(),
                         'cat_analyzation_queue': asyncio.Queue(),
-                        'cat_detections_in_current_chunk': []
+                        'cat_detections_in_current_chunk': [],
+                        'uhsz_queue': asyncio.Queue(),
                     }
                     
                     state = _recording_state
@@ -140,6 +148,7 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
                     state['catdet_task'] = asyncio.create_task(self._cat_analyzation())
                     state['camera_task'] = asyncio.create_task(self._use_camera())
                     state['video_combination_task'] = asyncio.create_task(self._video_combination_task())
+                    state['uhsz_task'] = asyncio.create_task(self._use_uhsz())
                     
                     print(f'Started recording: {state["vs"].started.strftime("%Y_%m_%d_%H_%M_%S")}')
                 
@@ -172,6 +181,7 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
                     await state['worker_task']
                     await state['catdet_task']
                     await state['video_combination_task']
+                    await state['uhsz_task']
                     
                     # Update database
                     state['vs'].stopped = datetime.now()
@@ -179,6 +189,7 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
                     
                     print(f"Recording stopped: {state['vs'].id}")
                     _recording_state = None
+
 
     async def _use_camera(self):
         """Collect full-res frames and stream low-res to websocket"""
@@ -221,9 +232,12 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
             except Exception as e:
                 print(f"Error broadcasting frame: {e}")
             
-            if frame_analyzation_counter == 150:
-                frame_analyzation_counter = 0
-                await _recording_state['cat_analyzation_queue'].put((lores_frame, fullres_frame))
+            try:
+                uhsz_signal = state['uhsz_queue'].get_nowait()
+                if uhsz_signal:
+                    await state['cat_analyzation_queue'].put((lores_frame, fullres_frame))
+            except asyncio.QueueEmpty:
+                pass  # No signal yet, continue
 
             await asyncio.sleep(0.033)  # ~30fps
     
@@ -329,3 +343,75 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
                     
                 except Exception as e:
                     print(f"Error combining videos: {e}")
+
+    async def _use_uhsz(self):
+        TRIG = 23
+        ECHO = 24
+
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(TRIG, GPIO.OUT)
+        GPIO.setup(ECHO, GPIO.IN)
+
+        GPIO.output(TRIG, False)
+        time.sleep(2)
+
+        def get_distance():
+            # Trigger pulse
+            GPIO.output(TRIG, True)
+            time.sleep(0.00001)
+            GPIO.output(TRIG, False)
+
+            # Echo start
+            while GPIO.input(ECHO) == 0:
+                pulse_start = time.time()
+
+            # Echo end
+            while GPIO.input(ECHO) == 1:
+                pulse_end = time.time()
+
+            pulse_duration = pulse_end - pulse_start
+
+            distance = pulse_duration * 17150  # cm
+            distance = round(distance, 1)
+
+            return distance
+
+        last_distance = 0
+
+        start_time = time.time()
+        samples = []
+
+        state = _recording_state
+        if not state:
+            return
+
+        while True:
+            await asyncio.sleep(0.1)
+            try:
+                distance = get_distance()
+
+                if distance is not None and distance < 800: # max 800 cm értékig mér
+                    samples.append(distance)
+                    # 1 másodperc gyűjtés után számolunk
+                    if time.time() - start_time >= 1.0:
+                    
+                        if len(samples) > 0:
+                            avg_distance = sum(samples) / len(samples)
+                            avg_distance = round(avg_distance, 1)
+
+                            if abs(last_distance - avg_distance) >= 5:
+                                print("Átlagolt távolság:", avg_distance, "cm")
+                                last_distance = avg_distance
+                                await _recording_state['uhsz_queue'].put(True)
+                        else:
+                            print("Minden érték zajos volt, nincs átlag")
+
+                        # reset
+                        samples = []
+                        start_time = time.time()
+
+            except e as Exception:
+                print(e)
+            if state['signal_to_stop'] == 1:
+                GPIO.cleanup()
+                break

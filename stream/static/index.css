@@ -99,3 +99,9 @@ input[type="number"] {
     justify-content: space-between;
     width: fit-content;
 }
+*[hidden=""] {
+    display: none;
+}
+*[hidden="false"] {
+    display: unset;
+}
