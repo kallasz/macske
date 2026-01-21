@@ -5,6 +5,8 @@ const startBtn = document.querySelector('#stream-start');
 const stopBtn = document.querySelector('#stream-stop');
 const status_box = document.querySelector('#status');
 
+const pulse = document.querySelector('#pulse');
+
 let ws = null;
 let isRecording = false;
 const WS_URL = `ws${location.protocol == "https:" ? "s" : ""}://${location.hostname}/stream/arpi/ws/`;
@@ -25,6 +27,12 @@ ws.onopen = () => {
   startBtn.hidden = isRecording;
   stopBtn.disabled = !isRecording;
   stopBtn.hidden = !isRecording;
+  for (let i = 0; i < pulse.children.length; i++) {
+    const element = pulse.children[i];
+    if (element.nodeName != "circle") {
+      element.setAttribute('visibility', !isRecording && element.getAttribute('x-for-status') === 'not_recording' ? 'visible' : 'hidden');
+    }
+  }
 };
 
 ws.onmessage = (event) => {
@@ -48,6 +56,7 @@ function displayFrame(arrayBuffer) {
 ws.onclose = () => {
   console.log('WebSocket disconnected');
 
+  // lenne uyge reconnect logic itt, de most nem kell, ezért van 2 identical if
   if (isRecording) {
     startBtn.disabled = true;
     startBtn.hidden = true;
@@ -58,6 +67,12 @@ ws.onclose = () => {
     startBtn.hidden = false;
     stopBtn.disabled = true;
     stopBtn.hidden = true;
+  }
+  for (let i = 0; i < pulse.children.length; i++) {
+    const element = pulse.children[i];
+    if (element.nodeName != "circle") {
+      element.setAttribute('visibility', element.getAttribute('x-for-status') === 'disconnected' ? 'visible' : 'hidden');
+    }
   }
 };
 
@@ -73,8 +88,13 @@ startBtn.addEventListener('click', () => {
     startBtn.hidden = true;
     stopBtn.disabled = false;
     stopBtn.hidden = false;
-  } else {
-    alert('Not connected to server. Please wait...');
+
+    for (let i = 0; i < pulse.children.length; i++) {
+      const element = pulse.children[i];
+      if (element.nodeName != "circle") {
+        element.setAttribute('visibility', isRecording && element.getAttribute('x-for-status') === 'recording' ? 'visible' : 'hidden');
+      }
+    }
   }
 });
 
@@ -86,5 +106,11 @@ stopBtn.addEventListener('click', () => {
     stopBtn.hidden = true;
     startBtn.disabled = false;
     startBtn.hidden = false;
+  }
+  for (let i = 0; i < pulse.children.length; i++) {
+    const element = pulse.children[i];
+    if (element.nodeName != "circle") {
+      element.setAttribute('visibility', !isRecording && element.getAttribute('x-for-status') === 'not_recording' ? 'visible' : 'hidden');
+    }
   }
 });

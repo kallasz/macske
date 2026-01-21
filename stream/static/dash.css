@@ -6,3 +6,31 @@ main {
   height: calc(100vh - 50px - 40px - 40px);
   justify-content: flex-start;
 }
+
+#recent_cds {
+  display: flex;
+  gap: 20px;
+  overflow-x: auto;
+  overflow-y: visible;
+  width: 100%;
+  padding: 20px;
+  flex-shrink: 0;
+}
+
+h2 {
+  margin-top: 30px;
+  margin-bottom: 10px;
+  margin-left: 20px;
+  margin-right: 20px;
+  align-self: flex-start;
+}
+
+#recent_streams {
+  display: flex;
+  /* flex-direction: column; */
+  flex-wrap: wrap;
+  gap: 10px;
+  width: 100%;
+  padding: 20px;
+  height: auto;
+}

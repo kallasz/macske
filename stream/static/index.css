@@ -100,7 +100,7 @@ input[type="number"] {
     width: fit-content;
 }
 *[hidden=""] {
-    display: none;
+    display: none !important;
 }
 *[hidden="false"] {
     display: unset;

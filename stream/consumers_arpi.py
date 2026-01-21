@@ -147,7 +147,6 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
                     state['worker_task'] = asyncio.create_task(self._worker_save_chunk())
                     state['catdet_task'] = asyncio.create_task(self._cat_analyzation())
                     state['camera_task'] = asyncio.create_task(self._use_camera())
-                    state['video_combination_task'] = asyncio.create_task(self._video_combination_task())
                     state['uhsz_task'] = asyncio.create_task(self._use_uhsz())
                     
                     print(f'Started recording: {state["vs"].started.strftime("%Y_%m_%d_%H_%M_%S")}')
@@ -180,7 +179,6 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
                     await state['cat_analyzation_queue'].put(None)
                     await state['worker_task']
                     await state['catdet_task']
-                    await state['video_combination_task']
                     await state['uhsz_task']
                     
                     # Update database
@@ -245,25 +243,50 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
         state = _recording_state
         if not state:
             return
-        
+
         while True:
             try:
                 lores_frame, fullres_frame = await state['cat_analyzation_queue'].get()
                 if lores_frame is None or fullres_frame is None:
                     break
+                
                 print("analyzing for cats...")
-                image = Image.open(io.BytesIO(lores_frame)).convert('RGB')
-                img_tensor = self.transform(image).unsqueeze(0).to(self.device)
-                with torch.no_grad():
-                    predictions = self.model(img_tensor)[0]
-                for i, label in enumerate(predictions['labels']):
-                    if label == self.CAT_CLASS_ID:
-                        score = predictions['scores'][i].item()
-                        if score >= self.confidence_threshold:
-                            cd = await database_sync_to_async(CatDetection.objects.create)(frame_num=len(state['frames']), frame_file=ContentFile(fullres_frame, f'{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}.jpg'), video_stream=state['vs'])
-                            state['cat_detections_in_current_chunk'].append(cd)
+
+                # Run inference in thread pool to avoid blocking event loop
+                cat_detected = await asyncio.to_thread(
+                    self._detect_cat_in_frame,
+                    lores_frame
+                )
+
+                if cat_detected:
+                    cd = await database_sync_to_async(CatDetection.objects.create)(
+                        frame_num=len(state['frames']), 
+                        frame_file=ContentFile(fullres_frame, f'{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}.jpg'), 
+                        video_stream=state['vs']
+                    )
+                    state['cat_detections_in_current_chunk'].append(cd)
+
             except Exception as e:
                 print(e)
+
+    def _detect_cat_in_frame(self, frame_bytes):
+        """Synchronous method that runs in thread pool"""
+        try:
+            image = Image.open(io.BytesIO(frame_bytes)).convert('RGB')
+            img_tensor = self.transform(image).unsqueeze(0).to(self.device)
+
+            with torch.no_grad():
+                predictions = self.model(img_tensor)[0]
+
+            for i, label in enumerate(predictions['labels']):
+                if label == self.CAT_CLASS_ID:
+                    score = predictions['scores'][i].item()
+                    if score >= self.confidence_threshold:
+                        return True
+            return False
+        except Exception as e:
+            print(f"Cat detection error: {e}")
+            return False
 
 
     async def stream_frame(self, event):
@@ -307,42 +330,16 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
                     save=True
                 )
 
-                for cd in cat_detections_in_current_chunk:
+                local_cat_detections_in_current_chunk = _recording_state['cat_detections_in_current_chunk'].copy()
+                _recording_state['cat_detections_in_current_chunk'] = []
+                for cd in local_cat_detections_in_current_chunk:
                     cd.chunk = chunk
                     await database_sync_to_async(cd.save)()
-                    _recording_state['cat_detections_in_current_chunk'] = []
                 
                 print(f"Saved chunk {current_chunk_number}")
                 
             except Exception as e:
                 print(f"Error saving chunk {current_chunk_number}: {e}")
-
-    async def _video_combination_task(self):
-        while True:
-            await asyncio.sleep(300)  # Every 5 minutes
-            async with _recording_lock:
-                global _recording_state
-                if _recording_state is None:
-                    break
-                
-                state = _recording_state
-                chunks = await database_sync_to_async(list)(Chunk.objects.filter(video_stream=state['vs']).order_by('chunk_number'))
-                
-                chunk_paths = [chunk.video_file.path for chunk in chunks]
-                try:
-                    buffer = await asyncio.to_thread(
-                        concatenate_webm_chunks,
-                        chunk_paths
-                    )
-                    
-                    combined_video_path = f'combined_{state["vs"].id}.webm'
-                    with open(combined_video_path, 'wb') as f:
-                        f.write(buffer.getvalue())
-                    
-                    print(f"Combined video saved to {combined_video_path}")
-                    
-                except Exception as e:
-                    print(f"Error combining videos: {e}")
 
     async def _use_uhsz(self):
         TRIG = 23
@@ -410,7 +407,7 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
                         samples = []
                         start_time = time.time()
 
-            except e as Exception:
+            except Exception as e:
                 print(e)
             if state['signal_to_stop'] == 1:
                 GPIO.cleanup()

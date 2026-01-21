@@ -16,7 +16,9 @@ def stream(request):
 
 @login_required
 def dash(request):
-    return render(request, "dash/index.html", {})
+    recent_cds = CatDetection.objects.all().order_by('-created_at')[:10]
+    recent_streams = VideoStream.objects.all().order_by('-started')[:5]
+    return render(request, "dash/dash_index.html", {'recent_cds': recent_cds, 'recent_streams': recent_streams})
 
 @login_required
 def dash_cat_detections(request):
@@ -57,5 +59,5 @@ def phone_stream(request):
 @login_required
 def randomcat(request):
     ri = random.randint(0, CatDetection.objects.all().__len__() - 1)
-    cd = CatDetection.objects.get(id=ri)
+    cd = CatDetection.objects.all()[ri]
     return render(request, "dash/catdetection.html", {'cd': cd})

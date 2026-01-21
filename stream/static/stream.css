@@ -4,19 +4,24 @@ main {
     padding: 20px;
     gap: 20px;
 }
+
 #video_stream {
     border: 2px solid white;
     border-radius: 10px;
 }
+
 #button_bar[x-status="disconnected"] #pulse {
     background-color: red;
 }
-#button_bar[x-status="connected"] #pulse{
+
+#button_bar[x-status="connected"] #pulse {
     background-color: limegreen;
 }
+
 #button_bar[x-status="recording"] #pulse {
     background-color: orange;
 }
+
 button {
     background-color: rgb(32, 32, 32);
     border-radius: unset;
@@ -24,14 +29,23 @@ button {
     border-top-left-radius: 10px !important;
     border-inline-end: 2px solid white;
 }
+
 #status {
     display: flex;
 }
+
 #pulse {
     border-top-right-radius: 10px;
     border-bottom-right-radius: 10px;
 }
+
 #button_bar {
     display: flex;
     flex-direction: row;
+}
+
+#button_bar button {
+    height: 40px;
+    display: flex;
+    align-items: center;
 }
