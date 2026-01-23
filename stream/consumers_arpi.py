@@ -376,42 +376,52 @@ class ArpiStreamConsumer(AsyncWebsocketConsumer):
 
             return distance
 
+        def filter_outliers(samples, max_deviation=30):
+            """Remove outliers that differ significantly from median"""
+            print(samples.__str__())
+            median = sorted(samples)[len(samples) // 2]
+            filtered = [x for x in samples if abs(x - median) <= max_deviation]
+            return filtered if filtered else samples
+    
         last_distance = 0
-
         start_time = time.time()
         samples = []
-
         state = _recording_state
+
         if not state:
             return
 
-        while True:
-            await asyncio.sleep(0.1)
-            try:
-                distance = get_distance()
+        try:
+            while True:
+                await asyncio.sleep(0.1)
+                try:
+                    distance = get_distance()
+                    if distance is not None and distance < 800:
+                        samples.append(distance)
 
-                if distance is not None and distance < 800: # max 800 cm értékig mér
-                    samples.append(distance)
-                    # 1 másodperc gyűjtés után számolunk
                     if time.time() - start_time >= 1.0:
-                    
                         if len(samples) > 0:
-                            avg_distance = sum(samples) / len(samples)
-                            avg_distance = round(avg_distance, 1)
+                            # Filter outliers before averaging
+                            filtered_samples = filter_outliers(samples, max_deviation=10)
 
-                            if abs(last_distance - avg_distance) >= 5:
-                                print("Átlagolt távolság:", avg_distance, "cm")
-                                last_distance = avg_distance
-                                await _recording_state['uhsz_queue'].put(True)
-                        else:
-                            print("Minden érték zajos volt, nincs átlag")
+                            if len(filtered_samples) > 0:
+                                avg_distance = sum(filtered_samples) / len(filtered_samples)
+                                avg_distance = round(avg_distance, 1)
 
-                        # reset
+                                if abs(last_distance - avg_distance) >= 5:
+                                    print(f"Átlagolt távolság: {avg_distance} cm (outliers szűrve: {len(samples) - len(filtered_samples)})")
+                                    last_distance = avg_distance
+                                    await _recording_state['uhsz_queue'].put(True)
+                            else:
+                                print("Minden érték outlier volt")
+
                         samples = []
                         start_time = time.time()
 
-            except e as Exception:
-                print(e)
-            if state['signal_to_stop'] == 1:
-                GPIO.cleanup()
-                break
+                except Exception as e:
+                    print(f"Hiba: {e}")
+
+                if state['signal_to_stop'] == 1:
+                    break
+        finally:
+            GPIO.cleanup()
